@@ -8,6 +8,8 @@ from nltk.corpus import cmudict
 import pyaudio
 import wave
 import azure.cognitiveservices.speech as speechsdk
+import jsonpickle
+
 
 nltk.download('cmudict')
 pronouncer = cmudict.dict()
@@ -104,30 +106,39 @@ def assess_pronunciation():
     
     speech_key, service_region = "d2a7943fa0eb4dfebbca5607f3dc8a4a", "eastus"
     speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
+
     audio_config = speechsdk.audio.AudioConfig(filename=audio_file)
 
-    reference_text = ""
+    speech_recognizer = speechsdk.SpeechRecognizer(
+            speech_config=speech_config, language="en-US", audio_config=audio_config)
+        
+    result = speech_recognizer.recognize_once()
+
+    text = result.text
+    reference_text = result.text
+
     pronunciation_config = speechsdk.PronunciationAssessmentConfig(
-        reference_text=reference_text,
-        grading_system=speechsdk.PronunciationAssessmentGradingSystem.HundredMark,
-        granularity=speechsdk.PronunciationAssessmentGranularity.Phoneme,
-        enable_miscue=True
-    )
+            reference_text=reference_text,
+            grading_system=speechsdk.PronunciationAssessmentGradingSystem.HundredMark,
+            granularity=speechsdk.PronunciationAssessmentGranularity.Phoneme,
+            enable_miscue=True)
     speech_recognizer = speechsdk.SpeechRecognizer(
             speech_config=speech_config, language="en-US", audio_config=audio_config)
 
-    text = "Speaking into microphone"
-    pronunciation_config.reference_text = text
+    pronunciation_config.reference_text = reference_text
     pronunciation_config.apply_to(speech_recognizer)
 
-    result = speech_recognizer.recognize_once()
+    result = speech_recognizer.recognize_once_async().get()
     
     if result.reason == speechsdk.ResultReason.RecognizedSpeech:
         print('Recognized: {}'.format(result.text))
         print('  Pronunciation Assessment Result:')
 
         pronunciation_result = speechsdk.PronunciationAssessmentResult(result)
-        #print(pronunciation_result.words)
+        print('Pronunciation score: {}, Completeness score : {}, FluencyScore: {}, AccuracyScore: {}'.format(
+            pronunciation_result.pronunciation_score,
+            pronunciation_result.completeness_score, pronunciation_result.fluency_score, pronunciation_result.accuracy_score
+        ))
         print('  Word-level details:')
         for idx, word in enumerate(pronunciation_result.words):
             print('    {}: word: {}, accuracy score: {}, error type: {};'.format(
@@ -141,14 +152,7 @@ def assess_pronunciation():
         if cancellation_details.reason == speechsdk.CancellationReason.Error:
             print("Error details: {}".format(cancellation_details.error_details))
 
-    words = nltk.word_tokenize(text)
-    for word in words:
-        if word.lower() in pronouncer:
-            phonemes = pronouncer[word.lower()][0]
-            print(phonemes)
-            # analyze the phonemes and compare to expected pronunciation
-
-    return text
+    return jsonpickle.encode(pronunciation_result.pronunciation_score)
 
 @app.route('/')
 def home():
